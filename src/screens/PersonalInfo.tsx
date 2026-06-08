@@ -1,128 +1,105 @@
-import React, { useEffect, useState } from "react";
-import { View, StyleSheet } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 import { CustomButton } from "../components/CustomButton";
 import { CustomTextInput } from "../components/CustomTextInput";
-import { validateSteps, KycApplication } from "../utils/validation";
+import {
+  KycApplication,
+  getFieldErrorMap,
+  validateStep,
+} from "../utils/validation";
 
 type Props = {
+  application: KycApplication;
+  busy?: boolean;
+  onSave: (data: NonNullable<KycApplication["personalInfo"]>) => void;
   onNext: () => void;
-  onSave: (data: {
-    legalName: string;
-    dateOfBirth: string;
-    nationality: string;
-  }) => void;
-  application: KycApplication | null;
 };
 
-export const PersonalInfo = ({ onNext, onSave, application }: Props) => {
+export function PersonalInfo({ application, busy, onSave, onNext }: Props) {
   const [legalName, setLegalName] = useState(
-    application?.personalInfo?.legalName || "",
+    application.personalInfo?.legalName ?? "",
   );
   const [dateOfBirth, setDateOfBirth] = useState(
-    application?.personalInfo?.dateOfBirth || "",
+    application.personalInfo?.dateOfBirth ?? "",
   );
   const [nationality, setNationality] = useState(
-    application?.personalInfo?.nationality || "",
+    application.personalInfo?.nationality ?? "",
   );
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    setLegalName(application?.personalInfo?.legalName || "");
-    setDateOfBirth(application?.personalInfo?.dateOfBirth || "");
-    setNationality(application?.personalInfo?.nationality || "");
-  }, [application?.personalInfo]);
+    setLegalName(application.personalInfo?.legalName ?? "");
+    setDateOfBirth(application.personalInfo?.dateOfBirth ?? "");
+    setNationality(application.personalInfo?.nationality ?? "");
+  }, [application.personalInfo]);
 
-  useEffect(() => {
-    if (application?.requiredFields) {
-      const newError: Record<string, string> = {};
-      application?.requiredFields.forEach((field) => {
-        const fieldName = field.split(".")[1];
-        newError[fieldName] = "This is a required field";
-      });
-      setErrors(newError);
-    } else {
-      setErrors({});
-    }
-  }, [application?.requiredFields]);
+  const errors = useMemo(
+    () => ({
+      ...getFieldErrorMap(application.requiredFields),
+      ...localErrors,
+    }),
+    [application.requiredFields, localErrors],
+  );
 
   const handleNext = () => {
-    const formData = {
-      legalName,
-      dateOfBirth,
-      nationality,
-    };
-    const validationErrors = validateSteps("personal_info", {
-      personalInfo: formData,
+    const fields = validateStep("personal_info", {
+      personalInfo: { legalName, dateOfBirth, nationality },
     });
-    if (validationErrors.length > 0) {
-      const newError: Record<string, string> = {};
-      validationErrors.forEach((field) => {
-        const fieldName = field.split(".")[1];
-        newError[fieldName] = "This is a required field";
-      });
-      setErrors(newError);
+    if (fields.length > 0) {
+      setLocalErrors(getFieldErrorMap(fields));
       return;
     }
-    setErrors({});
-    onSave(formData);
+
+    setLocalErrors({});
+    onSave({ legalName, dateOfBirth, nationality });
     onNext();
   };
 
-  const handleChange = (field: string, value: string) => {
-    if (errors[field]) {
-      setErrors((prev) => ({
-        ...prev,
-        [field]: "",
-      }));
-    }
-  };
   return (
     <View style={styles.container}>
+      <Text style={styles.heading}>Personal details</Text>
       <CustomTextInput
-        label="Legal Name"
+        label="Legal name"
         value={legalName}
-        placeholder="Enter your name"
-        onChangeText={(e) => {
-          setLegalName(e);
-          handleChange("legalName", e);
-        }}
-        error={errors.legalName}
+        placeholder="Jane Doe"
+        autoCapitalize="words"
+        error={errors["personalInfo.legalName"]}
+        onChangeText={setLegalName}
       />
       <CustomTextInput
-        label="Date of Birth"
+        label="Date of birth"
         value={dateOfBirth}
-        placeholder="DOB (YYYY-MM-DD)"
-        onChangeText={(e) => {
-          setDateOfBirth(e);
-          handleChange("dateOfBirth", e);
-        }}
-        error={errors.dateOfBirth}
+        placeholder="1990-01-31"
+        autoCapitalize="none"
+        error={errors["personalInfo.dateOfBirth"]}
+        onChangeText={setDateOfBirth}
       />
       <CustomTextInput
         label="Nationality"
         value={nationality}
-        placeholder="Nationality"
-        onChangeText={(e) => {
-          setNationality(e);
-          handleChange("nationality", e);
-        }}
-        error={errors.nationality}
+        placeholder="United Arab Emirates"
+        autoCapitalize="words"
+        error={errors["personalInfo.nationality"]}
+        onChangeText={setNationality}
       />
-      <View style={styles.buttonRow}>
-        <CustomButton label="Next" onPress={handleNext} />
+      <View style={styles.footer}>
+        <CustomButton label="Next" disabled={busy} onPress={handleNext} />
       </View>
     </View>
   );
-};
+}
+
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    width: "100%",
     gap: 16,
   },
-  buttonRow: {
+  heading: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  footer: {
     flexDirection: "row",
-    gap: 15,
-    justifyContent: "space-between",
+    marginTop: 8,
   },
 });

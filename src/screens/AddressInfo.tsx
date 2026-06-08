@@ -1,113 +1,112 @@
-import React, { useState, useEffect } from "react";
-import { View, StyleSheet } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 import { CustomButton } from "../components/CustomButton";
 import { CustomTextInput } from "../components/CustomTextInput";
-import { KycApplication, validateSteps } from "../utils/validation";
+import {
+  KycApplication,
+  getFieldErrorMap,
+  validateStep,
+} from "../utils/validation";
 
 type Props = {
+  application: KycApplication;
+  busy?: boolean;
+  onSave: (data: NonNullable<KycApplication["address"]>) => void;
   onNext: () => void;
-  onSave: (data: {
-    legalName: string;
-    dateOfBirth: string;
-    nationality: string;
-  }) => void;
   onBack: () => void;
-  application: KycApplication | null;
 };
 
-export const AddressInfo = ({ onNext, onBack, onSave, application }: Props) => {
-  const [country, setCountry] = useState(application?.address?.country || "");
-  const [city, setCity] = useState(application?.address?.city || "");
-  const [addressLine1, setAddressLine1] = useState(
-    application?.address?.line1 || "",
-  );
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  useEffect(() => {
-    setCountry(application?.address?.country || "");
-    setCity(application?.address?.city || "");
-    setAddressLine1(application?.address?.line1 || "");
-  }, [application?.address]);
+export function AddressInfo({
+  application,
+  busy,
+  onSave,
+  onNext,
+  onBack,
+}: Props) {
+  const [country, setCountry] = useState(application.address?.country ?? "");
+  const [city, setCity] = useState(application.address?.city ?? "");
+  const [line1, setLine1] = useState(application.address?.line1 ?? "");
+  const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (application?.requiredFields) {
-      const newError: Record<string, string> = {};
-      application?.requiredFields.forEach((field) => {
-        const fieldName = field.split(".")[1];
-        newError[fieldName] = "This is a required field";
-      });
-      setErrors(newError);
-    } else {
-      setErrors({});
-    }
-  }, [application?.requiredFields]);
+    setCountry(application.address?.country ?? "");
+    setCity(application.address?.city ?? "");
+    setLine1(application.address?.line1 ?? "");
+  }, [application.address]);
+
+  const errors = useMemo(
+    () => ({
+      ...getFieldErrorMap(application.requiredFields),
+      ...localErrors,
+    }),
+    [application.requiredFields, localErrors],
+  );
 
   const handleNext = () => {
-    const formData = {
-      country,
-      city,
-      line1: addressLine1,
-    };
-    const validationErrors = validateSteps("address", {
-      address: formData,
+    const fields = validateStep("address", {
+      address: { country, city, line1 },
     });
-    if (validationErrors.length > 0) {
-      const newError: Record<string, string> = {};
-      validationErrors.forEach((field) => {
-        const fieldName = field.split(".")[1];
-        newError[fieldName] = "This is a required field";
-      });
-      setErrors(newError);
+    if (fields.length > 0) {
+      setLocalErrors(getFieldErrorMap(fields));
       return;
     }
-    setErrors({});
-    onSave(formData);
+
+    setLocalErrors({});
+    onSave({ country, city, line1 });
     onNext();
   };
 
-  const handleChange = (field: string, value: string) => {
-    if (errors[field]) {
-      setErrors((prev) => ({
-        ...prev,
-        [field]: "",
-      }));
-    }
-  };
   return (
     <View style={styles.container}>
+      <Text style={styles.heading}>Residential address</Text>
       <CustomTextInput
         label="Country"
         value={country}
-        placeholder="Enter your country"
-        onChangeText={() => {}}
+        placeholder="United Arab Emirates"
+        autoCapitalize="words"
+        error={errors["address.country"]}
+        onChangeText={setCountry}
       />
       <CustomTextInput
         label="City"
         value={city}
-        placeholder="Enter your city"
-        onChangeText={() => {}}
+        placeholder="Dubai"
+        autoCapitalize="words"
+        error={errors["address.city"]}
+        onChangeText={setCity}
       />
       <CustomTextInput
-        label="Address Line 1"
-        value={addressLine1}
-        placeholder="Enter your address line 1"
-        onChangeText={() => {}}
+        label="Address line 1"
+        value={line1}
+        placeholder="Flat 1201, Marina Promenade"
+        error={errors["address.line1"]}
+        onChangeText={setLine1}
       />
-      <View style={styles.buttonRow}>
-        <CustomButton label="Back" />
-        <CustomButton label="Next" />
+      <View style={styles.footer}>
+        <CustomButton
+          label="Back"
+          variant="secondary"
+          disabled={busy}
+          onPress={onBack}
+        />
+        <CustomButton label="Next" disabled={busy} onPress={handleNext} />
       </View>
     </View>
   );
-};
+}
+
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    width: "100%",
     gap: 16,
   },
-  buttonRow: {
+  heading: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  footer: {
     flexDirection: "row",
-    gap: 15,
-    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 8,
   },
 });

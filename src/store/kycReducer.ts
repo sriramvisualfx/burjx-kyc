@@ -1,238 +1,226 @@
-import { KycApplication, KycStep, validateSteps } from "../utils/validation";
 import { KycAction, KycActionType } from "./kycAction";
 import {
   KycConflict,
-  isEditableRemote,
-  getCurrentStepForApplication,
+  applyStepFields,
+  createEmptyApplication,
+  resolveKycView,
 } from "./kycDomain";
+import { KycApplication, KycRequiredField, KycStep } from "../utils/validation";
 
-const stepsOrder: KycStep[] = [
-  "personal_info",
-  "address",
-  "document",
-  "review",
-  "status",
-];
-function updateApplication(
+export interface KycState {
+  isHydrating: boolean;
+  isSubmitting: boolean;
+  isPolling: boolean;
+  error: string | null;
+  pollAttempts: number;
+  localDraft: KycApplication | null;
+  remoteApplication: KycApplication | null;
+  activeApplication: KycApplication;
+  currentStep: KycStep;
+  conflict: KycConflict | null;
+}
+
+function withResolvedState(
   state: KycState,
-  updater: (application: KycApplication) => KycApplication,
+  localDraft: KycApplication | null,
+  remoteApplication: KycApplication | null,
 ): KycState {
-  const application = updater(state.application ?? createInitialApp());
   return {
     ...state,
-    application,
-    currentStep: isEditableRemote(application.status)
-      ? state.currentStep
-      : getCurrentStepForApplication(application),
-    syncDraft: true,
-    error: null,
+    localDraft,
+    remoteApplication,
+    ...resolveKycView(localDraft, remoteApplication),
   };
 }
-function getNextStep(currentStep: KycStep): KycStep {
-  const currentIndex = stepsOrder.indexOf(currentStep);
-  return stepsOrder[currentIndex + 1];
-}
 
-function getPrevStep(currentStep: KycStep): KycStep {
-  const currentIndex = stepsOrder.indexOf(currentStep);
-  return stepsOrder[currentIndex - 1];
-}
+function setRequiredFields(
+  application: KycApplication | null,
+  fields: KycRequiredField[] | undefined,
+): KycApplication | null {
+  if (!application) {
+    return application;
+  }
 
-function createInitialApp(): KycApplication {
   return {
-    id: crypto.randomUUID(),
-    status: "not_started",
-    currentStep: "personal_info",
+    ...application,
+    requiredFields: fields,
     updatedAt: new Date().toISOString(),
   };
 }
 
-export interface KycState {
-  application: KycApplication | null;
-  currentStep: KycStep;
-  isLoading: boolean;
-  isSaving: boolean;
-  isSubmitting: boolean;
-  isPolling: boolean;
-  error: string | null;
-  conflict: KycConflict | null;
-  syncDraft: boolean;
-}
-
 export const initialState: KycState = {
-  currentStep: "personal_info",
-  application: null,
-  isLoading: true,
-  isSaving: false,
+  isHydrating: true,
   isSubmitting: false,
   isPolling: false,
   error: null,
+  pollAttempts: 0,
+  localDraft: null,
+  remoteApplication: null,
+  activeApplication: createEmptyApplication(),
+  currentStep: "personal_info",
   conflict: null,
-  syncDraft: false,
 };
 
 export function kycReducer(state: KycState, action: KycActionType): KycState {
   switch (action.type) {
-    case KycAction.LOAD_LOCAL_DRAFT:
-    case KycAction.RESUME_DRAFT:
+    case KycAction.HYDRATE_START:
       return {
         ...state,
-        isLoading: true,
+        isHydrating: true,
         error: null,
       };
-    case KycAction.LOAD_SUCCESS:
+
+    case KycAction.HYDRATE_SUCCESS:
+      return {
+        ...withResolvedState(
+          state,
+          action.data.localDraft,
+          action.data.remoteApplication,
+        ),
+        isHydrating: false,
+        isPolling: action.data.remoteApplication?.status === "submitted",
+        error: null,
+      };
+
+    case KycAction.SAVE_PERSONAL_INFO: {
+      const base = state.localDraft ?? state.activeApplication;
+      return withResolvedState(
+        {
+          ...state,
+          error: null,
+        },
+        applyStepFields(base, "personal_info", action.data, undefined),
+        state.remoteApplication,
+      );
+    }
+
+    case KycAction.SAVE_ADDRESS_INFO: {
+      const base = state.localDraft ?? state.activeApplication;
+      return withResolvedState(
+        {
+          ...state,
+          error: null,
+        },
+        applyStepFields(base, "address", action.data, undefined),
+        state.remoteApplication,
+      );
+    }
+
+    case KycAction.SAVE_DOCUMENT_INFO: {
+      const base = state.localDraft ?? state.activeApplication;
+      return withResolvedState(
+        {
+          ...state,
+          error: null,
+        },
+        applyStepFields(base, "document", action.data, undefined),
+        state.remoteApplication,
+      );
+    }
+
+    case KycAction.SET_STEP: {
+      const draft = state.localDraft ?? state.activeApplication;
+      return withResolvedState(
+        {
+          ...state,
+          error: null,
+        },
+        {
+          ...draft,
+          currentStep: action.data,
+          updatedAt: new Date().toISOString(),
+        },
+        state.remoteApplication,
+      );
+    }
+
+    case KycAction.SET_REQUIRED_FIELDS:
+      return withResolvedState(
+        {
+          ...state,
+          error: null,
+        },
+        setRequiredFields(state.localDraft, action.data),
+        setRequiredFields(state.remoteApplication, action.data),
+      );
+
+    case KycAction.CLEAR_REQUIRED_FIELDS:
+      return withResolvedState(
+        {
+          ...state,
+          error: null,
+        },
+        setRequiredFields(state.localDraft, undefined),
+        setRequiredFields(state.remoteApplication, undefined),
+      );
+
+    case KycAction.SUBMIT_START:
       return {
         ...state,
-        currentStep: action.data.currentStep,
-        application: action.data.application,
-        isLoading: false,
-        isSaving: false,
+        isSubmitting: true,
+        error: null,
+      };
+
+    case KycAction.SUBMIT_SUCCESS:
+      return {
+        ...withResolvedState(state, action.data, action.data),
         isSubmitting: false,
-        isPolling: action.data.application.status === "submitted",
-        syncDraft: action.data.syncDraft,
-        conflict: action.data.conflict,
+        isPolling: action.data.status === "submitted",
+        pollAttempts: 0,
         error: null,
       };
+
+    case KycAction.SUBMIT_FAILURE:
+      return {
+        ...state,
+        isSubmitting: false,
+        isPolling: false,
+        error: action.data,
+      };
+
+    case KycAction.POLL_START:
+      return {
+        ...state,
+        isPolling: true,
+        error: null,
+      };
+
+    case KycAction.POLL_SUCCESS:
+      return {
+        ...withResolvedState(state, state.localDraft, action.data),
+        isPolling: action.data.status === "submitted",
+        isSubmitting: false,
+        error: null,
+      };
+
+    case KycAction.POLL_FAILURE:
+      return {
+        ...state,
+        isPolling: false,
+        error: action.data,
+      };
+
+    case KycAction.SET_POLL_ATTEMPTS:
+      return {
+        ...state,
+        pollAttempts: action.data,
+      };
+
     case KycAction.RESTART_APPLICATION:
       return {
         ...initialState,
-        isLoading: false,
-        application: createInitialApp(),
+        isHydrating: false,
+        localDraft: action.data,
+        activeApplication: action.data,
+        currentStep: action.data.currentStep,
       };
-    case KycAction.SET_STATE:
+
+    case KycAction.CLEAR_ERROR:
       return {
         ...state,
-        currentStep: action.data,
-      };
-    case KycAction.SET_ERROR:
-      return {
-        ...state,
-        error: action.data,
-        isLoading: false,
-        isSaving: false,
-        isSubmitting: false,
-      };
-    case KycAction.SET_POLLING:
-      return {
-        ...state,
-        isPolling: action.data,
-      };
-    case KycAction.SET_LOADING:
-      return {
-        ...state,
-        isLoading: action.data,
-      };
-    case KycAction.SET_REQUIRED_FIELDS:
-      if (!state.application) return state;
-      return {
-        ...state,
-        application: {
-          ...state.application,
-          requiredFields: action.data,
-          updatedAt: new Date().toISOString(),
-        },
-      };
-    case KycAction.SAVE_SUCCESS:
-      return {
-        ...state,
-        application: action.data,
-        currentStep: isEditableRemote(action.data.status)
-          ? action.data.currentStep
-          : getCurrentStepForApplication(action.data),
-        isSaving: false,
-        syncDraft: false,
         error: null,
       };
-    case KycAction.SET_STATE:
-      if (!state.application) return state;
-      return {
-        ...state,
-        currentStep: action.data,
-        application: {
-          ...state.application,
-          currentStep: action.data,
-          updatedAt: new Date().toISOString(),
-          requiredFields: undefined,
-        },
-        syncDraft: true,
-      };
-    case KycAction.SAVE_PERSONAL_INFO:
-      return updateApplication(state, (application) => ({
-        ...application,
-        status:
-          application.status === "not_started" ? "draft" : application.status,
-        personalInfo: action.data,
-        requiredFields: undefined,
-        updatedAt: new Date().toISOString(),
-      }));
-    case KycAction.SAVE_ADDRESS_INFO:
-      return updateApplication(state, (application) => ({
-        ...application,
-        status:
-          application.status === "not_started" ? "draft" : application.status,
-        address: action.data,
-        requiredFields: undefined,
-        updatedAt: new Date().toISOString(),
-      }));
-    case KycAction.SAVE_DOCUMENT_INFO:
-      return updateApplication(state, (application) => ({
-        ...application,
-        status:
-          application.status === "not_started" ? "draft" : application.status,
-        document: action.data,
-        requiredFields: undefined,
-        updatedAt: new Date().toISOString(),
-      }));
-    case KycAction.NEXT_STEP:
-      const nextStep = getNextStep(state.currentStep);
-      if (state.application && state.currentStep !== "review") {
-        const errors = validateSteps(state.currentStep, state.application);
-        if (errors.length > 0) {
-          return {
-            ...state,
-            application: {
-              ...state.application,
-              requiredFields: errors,
-              updatedAt: new Date().toISOString(),
-            },
-          };
-        }
-      }
-      if (!state.application) return state;
-      return {
-        ...state,
-        currentStep: nextStep,
-        application: {
-          ...state.application,
-          currentStep: nextStep,
-          requiredFields: undefined,
-          updatedAt: new Date().toISOString(),
-        },
-        syncDraft: true,
-      };
-    case KycAction.PREV_STEP:
-      if(!state.application) return state;
-      return {
-        ...state,
-        currentStep: getPrevStep(state.currentStep),
-        application: {
-          ...state.application,
-          currentStep: getPrevStep(state.currentStep),
-          requiredFields: undefined,
-          updatedAt: new Date().toISOString(),
-        },
-        syncDraft: true,
-      }
-    case KycAction.SUBMIT_SUCCESS:
-      return {
-        ...state,
-        application: action.data,
-        isLoading: false,
-        isSaving: false,
-        isSubmitting: false,
-        error: null,
-        conflict: null,
-      };
+
     default:
       return state;
   }

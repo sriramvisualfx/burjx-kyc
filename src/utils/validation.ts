@@ -5,12 +5,16 @@ export type KycStatus =
   | "requires_more_info"
   | "approved"
   | "rejected";
+
 export type KycStep =
   | "personal_info"
   | "address"
   | "document"
   | "review"
   | "status";
+
+export type EditableKycStep = Exclude<KycStep, "review" | "status">;
+
 export type KycRequiredField =
   | "personalInfo.legalName"
   | "personalInfo.dateOfBirth"
@@ -20,6 +24,7 @@ export type KycRequiredField =
   | "address.line1"
   | "document.type"
   | "document.documentNumber";
+
 export interface KycApplication {
   id: string;
   status: KycStatus;
@@ -38,58 +43,123 @@ export interface KycApplication {
     type: "passport" | "national_id" | "drivers_license";
     documentNumber: string;
   };
-  rejectionReason?: string;
   requiredFields?: KycRequiredField[];
+  rejectionReason?: string;
   updatedAt: string;
 }
-export function validateSteps(step: KycStep, application: Partial<KycApplication>): KycRequiredField[] {
+
+export const EDITABLE_STEPS: EditableKycStep[] = [
+  "personal_info",
+  "address",
+  "document",
+];
+
+export const STEP_ORDER: KycStep[] = [
+  "personal_info",
+  "address",
+  "document",
+  "review",
+  "status",
+];
+
+export const STEP_TITLES: Record<KycStep, string> = {
+  personal_info: "Personal info",
+  address: "Address",
+  document: "Document",
+  review: "Review",
+  status: "Status",
+};
+
+export function validateStep(
+  step: EditableKycStep,
+  application: Partial<KycApplication>,
+): KycRequiredField[] {
   const missingFields: KycRequiredField[] = [];
+
   if (step === "personal_info") {
-    const pInfo = application.personalInfo;
-    if (!pInfo?.legalName || pInfo?.legalName.trim() === "") {
+    if (!application.personalInfo?.legalName?.trim()) {
       missingFields.push("personalInfo.legalName");
     }
-    if (!pInfo?.dateOfBirth || pInfo?.dateOfBirth.trim() === "") {
+    if (!application.personalInfo?.dateOfBirth?.trim()) {
       missingFields.push("personalInfo.dateOfBirth");
     }
-    if (!pInfo?.nationality || pInfo?.nationality.trim() === "") {
+    if (!application.personalInfo?.nationality?.trim()) {
       missingFields.push("personalInfo.nationality");
     }
   }
+
   if (step === "address") {
-    const addr = application.address;
-    if (!addr?.country || addr?.country.trim() === "") {
+    if (!application.address?.country?.trim()) {
       missingFields.push("address.country");
     }
-    if (!addr?.city || addr?.city.trim() === "") {
+    if (!application.address?.city?.trim()) {
       missingFields.push("address.city");
     }
-    if (!addr?.line1 || addr?.line1.trim() === "") {
+    if (!application.address?.line1?.trim()) {
       missingFields.push("address.line1");
     }
   }
+
   if (step === "document") {
-    const doc = application.document;
-    if (!doc?.type || doc?.type.trim() === "") {
+    if (!application.document?.type?.trim()) {
       missingFields.push("document.type");
     }
-    if (!doc?.documentNumber || doc?.documentNumber.trim() === "") {
+    if (!application.document?.documentNumber?.trim()) {
       missingFields.push("document.documentNumber");
     }
   }
+
   return missingFields;
 }
 
-export function getStepsForField(field: KycRequiredField): KycStep[] {
-  const steps: KycStep[] = [];
+export function getFirstInvalidStep(
+  application: Partial<KycApplication>,
+): { step: EditableKycStep; fields: KycRequiredField[] } | null {
+  for (const step of EDITABLE_STEPS) {
+    const fields = validateStep(step, application);
+    if (fields.length > 0) {
+      return { step, fields };
+    }
+  }
+
+  return null;
+}
+
+export function getStepForField(field: KycRequiredField): EditableKycStep {
   if (field.startsWith("personalInfo")) {
-    steps.push("personal_info");
+    return "personal_info";
   }
   if (field.startsWith("address")) {
-    steps.push("address");
+    return "address";
   }
-  if (field.startsWith("document")) {
-    steps.push("document");
+  return "document";
+}
+
+export function getStepForRequiredFields(
+  fields: KycRequiredField[] | undefined,
+): EditableKycStep {
+  if (!fields?.length) {
+    return "personal_info";
   }
-  return steps;
+  return getStepForField(fields[0]);
+}
+
+export function getNextStep(step: KycStep): KycStep {
+  const index = STEP_ORDER.indexOf(step);
+  return STEP_ORDER[Math.min(index + 1, STEP_ORDER.length - 1)];
+}
+
+export function getPreviousStep(step: KycStep): KycStep {
+  const index = STEP_ORDER.indexOf(step);
+  return STEP_ORDER[Math.max(index - 1, 0)];
+}
+
+export function getFieldErrorMap(
+  fields: KycRequiredField[] | undefined,
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const field of fields ?? []) {
+    errors[field] = "Required";
+  }
+  return errors;
 }
